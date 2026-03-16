@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: iwaanaberich_db
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppassword
+      POSTGRES_DB: iwaanaberich
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser"]
+      interval: 10s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: iwaanaberich_backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://appuser:apppassword@postgres:5432/iwaanaberich
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

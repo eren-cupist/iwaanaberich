@@ -1,0 +1,10 @@
+services:
+  backend:
+    # 개발 환경: 프로덕션 빌드 이미지 대신 소스 직접 마운트 + 핫 리로드
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: yarn start:dev
