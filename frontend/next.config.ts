@@ -11,6 +11,15 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // 브라우저 → Next.js 서버 → 백엔드 프록시 (CORS 우회)
+  async rewrites() {
+    return [
+      {
+        source: "/api/backend/:path*",
+        destination: "http://localhost:4000/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;
