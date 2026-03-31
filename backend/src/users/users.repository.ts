@@ -1,76 +1,75 @@
 import { Injectable } from "@nestjs/common";
-import { DatabaseService } from "../database/database.service";
-import { User, CreateUserDto, UpsertUserData } from "./user.interface";
+import { PrismaService } from "../prisma/prisma.service";
+import { User } from "@generated/prisma/client";
+import { UpsertUserData } from "./user.interface";
 
 @Injectable()
 export class UsersRepository {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * 이메일로 사용자 조회
-   * @param email - 사용자 이메일
-   */
   async findByEmail(email: string): Promise<User | null> {
-    return this.databaseService.queryOne<User>(
-      "SELECT * FROM users WHERE email = $1",
-      [email]
-    );
+    return this.prisma.user.findUnique({ where: { email } });
   }
 
-  /**
-   * ID로 사용자 조회
-   * @param id - 사용자 UUID
-   */
   async findById(id: string): Promise<User | null> {
-    return this.databaseService.queryOne<User>(
-      "SELECT * FROM users WHERE id = $1",
-      [id]
-    );
+    return this.prisma.user.findUnique({ where: { id } });
   }
 
-  /**
-   * 새 사용자 생성
-   * @param data - 사용자 생성 데이터
-   */
-  async create(data: CreateUserDto): Promise<User> {
-    const result = await this.databaseService.queryOne<User>(
-      `INSERT INTO users (email, name, picture, google_id)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [data.email, data.name ?? null, data.picture ?? null, data.google_id ?? null]
-    );
-    return result!;
+  async create(data: {
+    email: string;
+    name?: string | null;
+    picture?: string | null;
+    googleId?: string | null;
+  }): Promise<User> {
+    return this.prisma.user.create({ data });
   }
 
-  /**
-   * 리프레시 토큰 업데이트 (로그아웃 시 null로 설정)
-   * @param id - 사용자 UUID
-   * @param token - 저장할 리프레시 토큰 (null이면 삭제)
-   */
   async updateRefreshToken(id: string, token: string | null): Promise<void> {
-    await this.databaseService.queryOne<User>(
-      "UPDATE users SET refresh_token = $1, updated_at = NOW() WHERE id = $2",
-      [token, id]
-    );
+    await this.prisma.user.update({
+      where: { id },
+      data: { refreshToken: token },
+    });
   }
 
-  /**
-   * 사용자 upsert (이메일 기준 충돌 시 업데이트)
-   * @param data - upsert 데이터
-   */
   async upsert(data: UpsertUserData): Promise<User> {
-    const result = await this.databaseService.queryOne<User>(
-      `INSERT INTO users (email, name, picture, google_id)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (email)
-       DO UPDATE SET
-         name = EXCLUDED.name,
-         picture = EXCLUDED.picture,
-         google_id = EXCLUDED.google_id,
-         updated_at = NOW()
-       RETURNING *`,
-      [data.email, data.name, data.picture, data.google_id]
-    );
-    return result!;
+    return this.prisma.user.upsert({
+      where: { email: data.email },
+      create: {
+        email: data.email,
+        name: data.name,
+        picture: data.picture,
+        googleId: data.google_id,
+      },
+      update: {
+        name: data.name,
+        picture: data.picture,
+        googleId: data.google_id,
+      },
+    });
+  }
+
+  async updateUpbitKeys(
+    id: string,
+    accessKey?: string,
+    secretKey?: string,
+  ): Promise<void> {
+    const data: Record<string, string> = {};
+    if (accessKey !== undefined) data.upbitAccessKey = accessKey;
+    if (secretKey !== undefined) data.upbitSecretKey = secretKey;
+    if (Object.keys(data).length === 0) return;
+
+    await this.prisma.user.update({
+      where: { id },
+      data,
+    });
+  }
+
+  async getUpbitKeys(
+    id: string,
+  ): Promise<{ upbitAccessKey: string | null; upbitSecretKey: string | null } | null> {
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: { upbitAccessKey: true, upbitSecretKey: true },
+    });
   }
 }
