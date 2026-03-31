@@ -5,6 +5,15 @@ import { AppModule } from "./app.module";
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // CORS 설정 (프론트엔드 + 크롬 확장 프로그램)
+  app.enableCors({
+    origin: [
+      "http://localhost:3001",
+      /^chrome-extension:\/\//,
+    ],
+    credentials: true,
+  });
+
   // 전역 유효성 검사 파이프 등록
   app.useGlobalPipes(
     new ValidationPipe({

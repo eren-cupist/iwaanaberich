@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// 사용자
+// ============================================
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  name         String?  @db.VarChar(255)
+  picture      String?  @db.Text
+  googleId     String?  @unique @map("google_id") @db.VarChar(255)
+  refreshToken String?  @map("refresh_token") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Upbit API 키 (AES-256 암호화 저장)
+  upbitAccessKey String? @map("upbit_access_key") @db.Text
+  upbitSecretKey String? @map("upbit_secret_key") @db.Text
+
+  // 관계
+  trades        Trade[]
+  aiAnalyses    AiAnalysis[]
+  dailyPnl      DailyProfitLoss[]
+  tradingConfig TradingConfig?
+
+  @@map("users")
+}
+
+// ============================================
+// 거래 이력
+// ============================================
+model Trade {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String      @map("user_id") @db.Uuid
+  market         String      @db.VarChar(20)
+  side           TradeSide
+  orderType      OrderType   @map("order_type")
+  price          Decimal?    @db.Decimal(20, 8)
+  volume         Decimal     @db.Decimal(20, 8)
+  executedVolume Decimal?    @map("executed_volume") @db.Decimal(20, 8)
+  executedAmount Decimal?    @map("executed_amount") @db.Decimal(20, 2)
+  fee            Decimal?    @db.Decimal(20, 2)
+  upbitOrderId   String?     @map("upbit_order_id") @db.VarChar(100)
+  status         TradeStatus @default(PENDING)
+  aiAnalysisId   String?     @map("ai_analysis_id") @db.Uuid
+  reason         String?     @db.Text
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiAnalysis AiAnalysis? @relation(fields: [aiAnalysisId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([market])
+  @@map("trades")
+}
+
+// ============================================
+// AI 분석 결과
+// ============================================
+model AiAnalysis {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String        @map("user_id") @db.Uuid
+  market           String        @db.VarChar(20)
+  decision         TradeDecision
+  confidence       Int
+  reason           String        @db.Text
+  technicalSummary Json?         @map("technical_summary")
+  sentimentSummary Json?         @map("sentiment_summary")
+  gptModel         String        @map("gpt_model") @db.VarChar(50)
+  promptTokens     Int?          @map("prompt_tokens")
+  completionTokens Int?          @map("completion_tokens")
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trades Trade[]
+
+  @@index([userId, createdAt])
+  @@index([market])
+  @@map("ai_analyses")
+}
+
+// ============================================
+// 일별 수익/손실
+// ============================================
+model DailyProfitLoss {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  date            DateTime @db.Date
+  totalBuyAmount  Decimal  @default(0) @map("total_buy_amount") @db.Decimal(20, 2)
+  totalSellAmount Decimal  @default(0) @map("total_sell_amount") @db.Decimal(20, 2)
+  realizedPnl     Decimal  @default(0) @map("realized_pnl") @db.Decimal(20, 2)
+  unrealizedPnl   Decimal  @default(0) @map("unrealized_pnl") @db.Decimal(20, 2)
+  totalFees       Decimal  @default(0) @map("total_fees") @db.Decimal(20, 2)
+  tradeCount      Int      @default(0) @map("trade_count")
+  portfolioValue  Decimal  @default(0) @map("portfolio_value") @db.Decimal(20, 2)
+  aiSummary       String?  @map("ai_summary") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("daily_profit_loss")
+}
+
+// ============================================
+// 트레이딩 설정
+// ============================================
+model TradingConfig {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String    @unique @map("user_id") @db.Uuid
+  isActive            Boolean   @default(false) @map("is_active")
+  targetMarkets       String[]  @map("target_markets")
+  analysisIntervalMin Int       @default(1) @map("analysis_interval_min")
+  maxInvestmentKrw    Decimal   @default(100000) @map("max_investment_krw") @db.Decimal(20, 2)
+  maxPositionPercent  Int       @default(30) @map("max_position_percent")
+  stopLossPercent     Decimal   @default(5) @map("stop_loss_percent") @db.Decimal(5, 2)
+  takeProfitPercent   Decimal   @default(10) @map("take_profit_percent") @db.Decimal(5, 2)
+  riskLevel           RiskLevel @default(MEDIUM) @map("risk_level")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("trading_configs")
+}
+
+// ============================================
+// Enums
+// ============================================
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  LIMIT
+  MARKET
+}
+
+enum TradeStatus {
+  PENDING
+  SUBMITTED
+  FILLED
+  PARTIAL
+  CANCELLED
+  FAILED
+}
+
+enum TradeDecision {
+  BUY
+  SELL
+  HOLD
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
