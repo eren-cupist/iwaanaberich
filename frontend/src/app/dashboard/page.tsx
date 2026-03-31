@@ -2,54 +2,172 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { UserProfile } from "@/components/auth/UserProfile";
+import axiosInstance from "@/lib/axiosInstance";
+import Link from "next/link";
 
-// 대시보드 페이지 - 로그인한 유저만 접근 가능
+interface TradingStatus {
+  isActive: boolean;
+  targetMarkets: string[];
+  todayTradeCount: number;
+  lastAnalysis: {
+    market: string;
+    decision: string;
+    confidence: number;
+    reason: string;
+    createdAt: string;
+  } | null;
+}
+
+interface PnlSummary {
+  period: string;
+  totalRealizedPnl: number;
+  totalFees: number;
+  netPnl: number;
+  totalTrades: number;
+  winDays: number;
+  lossDays: number;
+  winRate: number;
+}
+
 export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [tradingStatus, setTradingStatus] = useState<TradingStatus | null>(null);
+  const [pnlSummary, setPnlSummary] = useState<PnlSummary | null>(null);
 
   useEffect(() => {
-    // 로그인하지 않은 경우 메인 페이지로 리다이렉트
     if (status === "unauthenticated") {
       router.replace("/");
     }
   }, [status, router]);
 
-  // 세션 로딩 중 표시
+  const backendToken = session?.backendToken;
+
+  useEffect(() => {
+    if (backendToken) {
+      axiosInstance.get("/trading/status").then((res) => setTradingStatus(res.data)).catch(() => {});
+      axiosInstance.get("/profit-loss/summary?days=7").then((res) => setPnlSummary(res.data)).catch(() => {});
+    }
+  }, [backendToken]);
+
   if (status === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-500">로딩 중...</div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="text-slate-500">로딩 중...</div>
       </div>
     );
   }
 
-  // 인증되지 않은 경우 아무것도 표시하지 않음 (리다이렉트 처리 중)
-  if (!session) {
-    return null;
-  }
+  if (!session) return null;
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* 헤더 영역 */}
-        <header className="flex justify-between items-center mb-8 pb-4 border-b border-gray-200">
-          <h1 className="text-2xl font-bold text-gray-900">이와나베리치</h1>
+    <main className="min-h-screen bg-slate-950 text-slate-200">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* 헤더 */}
+        <header className="flex justify-between items-center mb-8 pb-4 border-b border-slate-800">
+          <h1 className="text-2xl font-bold text-white">이와나베리치</h1>
           <UserProfile />
         </header>
 
-        {/* 환영 메시지 */}
-        <section className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-xl font-semibold text-gray-800">
-            환영합니다, {session.user?.name || "사용자"}님!
-          </h2>
-          <p className="mt-2 text-gray-600">
-            대시보드에 성공적으로 로그인하셨습니다.
-          </p>
-        </section>
+        {/* 네비게이션 */}
+        <nav className="flex gap-2 mb-8">
+          <NavLink href="/dashboard" active>대시보드</NavLink>
+          <NavLink href="/dashboard/trades">거래 이력</NavLink>
+          <NavLink href="/dashboard/analysis">AI 분석</NavLink>
+          <NavLink href="/dashboard/profit-loss">수익/손실</NavLink>
+          <NavLink href="/dashboard/settings">설정</NavLink>
+        </nav>
+
+        {/* 트레이딩 상태 카드 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <StatusCard
+            title="자동매매 상태"
+            value={tradingStatus?.isActive ? "활성" : "비활성"}
+            color={tradingStatus?.isActive ? "text-green-400" : "text-red-400"}
+          />
+          <StatusCard
+            title="오늘 거래"
+            value={`${tradingStatus?.todayTradeCount ?? 0}건`}
+          />
+          <StatusCard
+            title="대상 마켓"
+            value={tradingStatus?.targetMarkets?.join(", ") || "미설정"}
+          />
+        </div>
+
+        {/* 7일 수익 요약 */}
+        {pnlSummary && (
+          <div className="bg-slate-900 rounded-xl p-6 mb-6">
+            <h2 className="text-lg font-semibold text-white mb-4">7일 수익 요약</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <SummaryItem
+                label="순수익"
+                value={`${pnlSummary.netPnl >= 0 ? "+" : ""}${pnlSummary.netPnl.toLocaleString()}원`}
+                color={pnlSummary.netPnl >= 0 ? "text-green-400" : "text-red-400"}
+              />
+              <SummaryItem label="총 거래" value={`${pnlSummary.totalTrades}건`} />
+              <SummaryItem label="승률" value={`${pnlSummary.winRate.toFixed(0)}%`} />
+              <SummaryItem label="수수료" value={`${pnlSummary.totalFees.toLocaleString()}원`} />
+            </div>
+          </div>
+        )}
+
+        {/* 최근 AI 분석 */}
+        {tradingStatus?.lastAnalysis && (
+          <div className="bg-slate-900 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">최근 AI 분석</h2>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="font-mono text-white">{tradingStatus.lastAnalysis.market}</span>
+              <span className={`font-bold ${
+                tradingStatus.lastAnalysis.decision === "BUY" ? "text-green-400"
+                : tradingStatus.lastAnalysis.decision === "SELL" ? "text-red-400"
+                : "text-slate-400"
+              }`}>
+                {tradingStatus.lastAnalysis.decision}
+              </span>
+              <span className="text-slate-500 text-sm">
+                신뢰도 {tradingStatus.lastAnalysis.confidence}%
+              </span>
+            </div>
+            <p className="text-slate-400 text-sm">{tradingStatus.lastAnalysis.reason}</p>
+          </div>
+        )}
       </div>
     </main>
+  );
+}
+
+function NavLink({ href, children, active }: { href: string; children: React.ReactNode; active?: boolean }) {
+  return (
+    <Link
+      href={href}
+      className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+        active
+          ? "bg-blue-600 text-white"
+          : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+      }`}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function StatusCard({ title, value, color }: { title: string; value: string; color?: string }) {
+  return (
+    <div className="bg-slate-900 rounded-xl p-4">
+      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">{title}</div>
+      <div className={`text-xl font-bold ${color || "text-white"}`}>{value}</div>
+    </div>
+  );
+}
+
+function SummaryItem({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="text-center">
+      <div className="text-xs text-slate-500 mb-1">{label}</div>
+      <div className={`text-lg font-bold ${color || "text-white"}`}>{value}</div>
+    </div>
   );
 }
